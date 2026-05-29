@@ -21,7 +21,7 @@ If the repo already has Phase 0 artifacts, ask the user whether they want to ref
 ## Philosophy
 
 1. **Design comes before code.** Phase 0 produces written, reviewed, versioned documents. No implementation pressure.
-2. **Formal specifications come before implementation.** Any feature that touches a load-bearing invariant gets its TLA+ (or similar) model first. The spec is the source of truth; the code is an implementation of the spec.
+2. **Verification rigor comes before implementation — by the user's chosen method.** Every feature that touches a load-bearing invariant is validated *before* the code is trusted, by ONE of two methods the user picks at bootstrap (Phase 4) and may revisit later: **(a) formal specification** — a TLA+ (or similar) model written first, the spec as source of truth, the code an implementation of the spec; or **(b) deep reasoning** — the invariant argued explicitly in prose (design doc + file header + commit message + reference doc) and validated by the adversarial audit + the test suite. Either way the invariant is pinned *in writing before merge*; the choice is only which form that pinning takes. (Formal modeling is the higher-assurance, higher-cost path; deep reasoning is lighter and often sufficient — many mature projects move from (a) to (b) once the team trusts its invariant discipline.)
 3. **Adversarial audits gate invariant-bearing merges.** Not ceremony — each audit round has historically surfaced bugs the test suite didn't catch.
 4. **ARCHITECTURE.md and ROADMAP.md are binding scripture.** Implementation deviations either update scripture first or are reverted.
 5. **Session continuity is preserved.** Memory files + status docs mean a context compaction or new session instance is a no-op for quality.
@@ -157,7 +157,7 @@ Explicit. Each: one sentence stating what's out + one sentence on why it's out.
 
 ## Load-bearing invariants (first pass)
 
-Enumerate. These become TLA+ proof obligations in Phase 2+.
+Enumerate. These become verification obligations in Phase 2+ (formal-spec proof obligations or deep-reasoning invariants, per the Phase-4 verification-rigor choice).
 
 ## Open questions
 
@@ -307,7 +307,7 @@ Precise definitions. Every term the rest of the document depends on.
 ## §3 Concurrency model
 
 The decision. The alternatives. The rationale.
-Invariants: (list — these become TLA+ proof obligations).
+Invariants: (list — these become verification obligations: formal-spec proof obligations or deep-reasoning invariants).
 
 ## §4 Resource model
 
@@ -374,6 +374,15 @@ Iterate until explicit signoff.
 
 After Gate 3, set up the operational artifacts that enforce the framework at every session.
 
+### Decision: verification-rigor method (ask the user)
+
+Before writing CLAUDE.md, **ask the user which verification method this project will use** for invariant-bearing features (Philosophy #2) — it is optional, not assumed:
+
+- **(a) Formal specification (spec-to-code / spec-first)** — TLA+ (or similar) model written + TLC-checked BEFORE the implementation, with buggy-config counterexamples and a SPEC-TO-CODE mapping. Highest assurance; highest cost; needs the TLA+ toolchain + the modeling skill. Best when the invariants are concurrency/ordering-heavy and the cost of a runtime bug is very high.
+- **(b) Deep reasoning** — the invariant is argued explicitly in prose (design doc + file-header + commit message + reference doc) and validated by the adversarial audit round + the test suite. Lighter; faster; no toolchain. Best when the team trusts its invariant discipline and the audit+test floor is strong.
+
+Present it as a clear choice (offer a recommendation if the project's risk profile points one way), get the user's pick, and **write the CHOSEN variant into CLAUDE.md's verification-rigor policy** (below) — keep the chosen one, drop or footnote the other. The choice is revisitable: a project may start with (a) and later move to (b) (a common path once invariant discipline is proven), or suspend (a) per-chunk — record any such change in CLAUDE.md with the rationale + user signoff. If the user has no preference, default to (a) for a from-scratch low-level project (formal modeling earns its cost early), but say so.
+
 ### CLAUDE.md
 
 Write `CLAUDE.md` at the repo root. It encodes the operational framework. Template below — substitute project-specific details (project name, build commands, invariants) but preserve every section's substance.
@@ -401,11 +410,15 @@ Only after ARCHITECTURE.md is signed off does implementation resume.
 - Design sessions produce documents, not code.
 - Load-bearing invariants identified during design become candidates for formal specification. The spec is the source of truth; code is an implementation of the spec.
 
-## Spec-first policy (applies to every new feature)
+## Verification-rigor policy (applies to every invariant-bearing feature)
 
-**If a feature touches a load-bearing invariant — concurrency, commit ordering, resource accounting, cache coherence, fault recovery, crypto key derivation, scheduling fairness, priority inversion, deadlock freedom, anything in the §N Invariants list in ARCHITECTURE.md — the TLA+ (or similar) model comes BEFORE the implementation.** Write the spec, let TLC chew on it, let invariant violations surface at the spec level where they cost minutes, not at runtime where they cost commits.
+This project uses **{FILL IN AT PHASE 4: "formal specification (spec-first)" OR "deep reasoning"}** as its verification method — the user's choice (Phase 4 "Decision: verification-rigor method"). Keep the matching variant below; the other is the documented alternative the project can switch to (or suspend per-chunk) with user signoff.
 
-Concrete pattern:
+**The trigger (both methods):** a feature touches a load-bearing invariant — concurrency, commit ordering, resource accounting, cache coherence, fault recovery, crypto key derivation, scheduling fairness, priority inversion, deadlock freedom, anything in the §N Invariants list in ARCHITECTURE.md. Such a feature must have its invariant **pinned in writing and validated before merge.** The methods differ only in *how*.
+
+### Method (a) — formal specification (spec-first)
+
+**The TLA+ (or similar) model comes BEFORE the implementation.** Write the spec, let TLC chew on it, let invariant violations surface at the spec level where they cost minutes, not at runtime where they cost commits.
 1. Propose the feature in prose (problem + shape).
 2. Model the mechanism in TLA+ — state, actions, invariants. TLC with small bounds.
 3. Iterate until TLC is green under the invariants the implementation must uphold. If a bug shows up, fix the DESIGN before writing code.
@@ -413,11 +426,23 @@ Concrete pattern:
 5. Implement against the model. Cross-reference each impl step to the corresponding spec action in comments. Keep the SPEC-TO-CODE mapping current.
 6. When the impl surfaces a new mechanism the spec didn't cover, extend the spec FIRST, then update the impl.
 
-Features that clearly benefit: multi-{device,node,thread} coordination, quorum protocols, commit protocols, key rotation, fault recovery, refcount graphs, MVCC readers vs writers, anything that persists a reservation-then-commit or multi-phase write, anything that uses crypto nonces over a shared key, anything with more than one state machine in play.
-
-Features that usually don't (pure computation, test helpers, config parsing, CLI glue): skip the spec; just write + test. Use judgment.
-
 **If you cannot articulate the invariant formally, you don't understand it well enough to implement it.**
+
+### Method (b) — deep reasoning
+
+**No formal model; the invariant is validated by careful prose reasoning backed by the rigor floor.**
+1. Propose the feature in prose (problem + shape).
+2. Articulate the invariant explicitly — in the implementation's file header + the commit message + the reference doc. Walk the interleavings / failure modes in prose: name the serializing event, the lock order, the lifetime, the ordering guarantee.
+3. The **adversarial audit round + the test suite are the rigor floor** — they stand in for TLC. The audit prosecutes the articulated invariant; regression tests pin the behavior (every demonstrated bug gets a test that fails pre-fix, passes post-fix).
+4. **If you cannot articulate the invariant clearly in prose, you don't understand it well enough to implement it.**
+
+Method (b) is the lighter, toolchain-free path. A project on (a) may suspend it per-chunk, or switch wholesale to (b), once invariant discipline is proven — record the change + the user signoff here.
+
+### Both methods
+
+Features that clearly benefit from the rigor: multi-{device,node,thread} coordination, quorum protocols, commit protocols, key rotation, fault recovery, refcount graphs, MVCC readers vs writers, anything that persists a reservation-then-commit or multi-phase write, anything that uses crypto nonces over a shared key, anything with more than one state machine in play.
+
+Features that usually don't (pure computation, test helpers, config parsing, CLI glue): skip the heavy treatment; just write + test. Use judgment.
 
 ### TLA+ setup
 
@@ -519,7 +544,7 @@ Be brutal but grounded. Quote code; don't paraphrase it.
 
 ## Invariants that must hold
 
-Copy the enumerated list from ARCHITECTURE.md §N verbatim here. These are the TLA+ proof obligations AND the audit invariants. Keep in sync with ARCH.
+Copy the enumerated list from ARCHITECTURE.md §N verbatim here. These are the verification obligations (formal-spec proof obligations or deep-reasoning invariants, per the Phase-4 choice) AND the audit invariants. Keep in sync with ARCH.
 
 ## Regression testing
 
@@ -573,6 +598,14 @@ Catches format drift at build time, not at mount / connect / boot time.
 
 When an implementation chunk exceeds one commit's reasonable scope, split into sub-chunks named Xa / Xb / Xc. Each sub-chunk lands independently with its own status-doc row, commit message, and tests. Handoff points between sub-chunks mean a context compaction at any boundary is recoverable.
 
+### Chunk completeness — pull dependencies forward; deferral needs signoff
+
+If the current chunk's **proper and complete** implementation depends on an item that is later on the roadmap, or on an item deferred in an earlier chunk, **strongly prefer pulling that item into the current chunk** — complete the chunk to the fullest specification possible rather than shipping a half-version built against a missing dependency. The pull-forward is the **default**, not a deviation: note it in the chunk's commit message + status row and proceed (it is the act of *finishing the chunk*, so it does not by itself need signoff).
+
+**Deferral is the exception, and it needs the user's signoff.** If deferring the dependency genuinely makes more sense (truly separable, large enough to be its own chunk, or better audited on its own), do not silently ship the half-version — surface it as a structured choice and get the user's vote first.
+
+**Why this is binding:** too many quiet deferrals compound into **silent omissions** — the system ends up not actually doing what scripture says it does, and nobody decided that on purpose. Bias the default toward completeness; put the burden of proof on *deferring*, not on *building*. (This is the chunk-scoped form of the build-vs-defer judgment: a dependency of the current chunk defaults to build-now; only a genuinely-separable foreseeable-but-not-yet item is deferred, and turning a real current-chunk dependency into a deferral is what needs signoff.)
+
 ### Crash-injection + fault-injection testing
 
 For torn-write-sensitive paths (persistent state machines, multi-phase commits), wire fault-injection hooks at every durable write. Test that recovery from each injection point produces a valid state. Same pattern applies to interrupt injection in schedulers, fault injection in fault-tolerant networking, and partial-failure injection in distributed systems.
@@ -585,7 +618,7 @@ For torn-write-sensitive paths (persistent state machines, multi-phase commits),
 - Format breaks (on-disk version bumps, wire-protocol ABI changes, syscall interface changes).
 - Destructive operations (`git push --force`, branch/tag deletion, hard reset of shared branches, database drops).
 - Architectural deviations from ARCHITECTURE.md — either update ARCH first (with user approval) or revert the deviation.
-- Cross-phase scope pivots — if what you're about to do pulls work from Phase N+1 into Phase N, confirm.
+- Cross-phase scope pivots — pulling *unrelated* future scope into the current phase, OR **deferring an item the current chunk depends on** (see "Chunk completeness — pull dependencies forward"), must be confirmed. Pulling a genuine *dependency* forward to complete the current chunk to its fullest spec is preferred and does NOT need confirmation — note it and proceed.
 - Anything unclear in ARCH / ROADMAP / NOVEL / VISION.
 - Anything visible to others (pushes to shared branches, PR creation, external API calls, Slack/email posting).
 - Spending significant compute or external budget.
@@ -777,6 +810,75 @@ Before spawning the formal audit agent — and on every chunk regardless of whet
 State the result in the commit message: "Self-audit clean across <N> categories: <list>" or "Self-found before audit: <finding> — fixed in same chunk".
 
 Findings either land as a fix-in-the-same-chunk OR as an explicit "self-found before audit" addendum commit (so the audit's closed-list preamble accounts for them).
+
+## Audit-in-flight parallel work
+
+When the focused audit prosecutor is running in the background, do NOT idle and do NOT poll for completion (the runtime delivers a notification on completion). Two activities happen in parallel — both required, in this order:
+
+1. **Useful non-colliding work first.** Identify work that doesn't touch the audit's file scope. Examples: documentation updates, status-doc refresh, memory-file maintenance, scripture renumbering, prep notes for the next chunk, a separate-subsystem refactor, sibling-test additions. The agent's prompt scoped its file list explicitly — treat that list as off-limits while the agent runs (don't risk creating a merge conflict with the agent's deductions).
+
+2. **Then a self-audit on the same surface as the agent.** Prosecute the audited code adversarially yourself. Re-read every modified file. Trace each invariant. Find what the agent might miss. Two independent prosecutors catch different issues — the agent and you bias toward different categories. Treat your findings with the same authority as the agent's.
+
+When the agent completes:
+- **Merge findings**: combine its report with your self-found ones. Disposition together; do not segregate "agent findings" vs "self findings" — they're all findings with the same severity rigor.
+- **Cross-check**: if the agent missed something you found (or vice versa), the gap itself is signal about audit coverage. Note it for the next prosecutor prompt's "focus areas."
+
+This discipline is **non-optional** for any audit-bearing chunk. The cost is small (the self-audit is anyway a refinement of the pre-audit self-review per "Self-audit before formal audit" above); the value is real — round 2 prosecutors and self-audits running concurrently with round 1 have caught real P0/P1s the single-pass formal audit missed.
+
+## Re-audit on dirty close
+
+A close is **dirty** if any of:
+- Any P0 returned.
+- (P1 + P2 count) ≥ 6.
+- The fixes themselves were structurally invasive (restructured a load-bearing mechanism, lifted a lock-order rule, changed a wait/wake protocol, removed a primitive).
+
+On a dirty close, the fixes themselves may introduce new bugs — **schedule a follow-up audit round on the audit-close state**. The follow-up:
+
+1. Treats the round-N closed list as do-not-re-report preamble (just like any audit).
+2. Focuses prosecutor attention on **the fixes themselves**, named explicitly in a "round N+1 focus areas" section. Invasive restructures often introduce new lock-order issues, lifecycle hazards, or memory-ordering gaps.
+3. Runs the audit-in-flight parallel-work discipline (above): useful non-colliding work + self-audit on the same surface.
+4. Repeats until the round returns clean (0 P0, 0 P1, only documented-as-deferred P3s).
+
+A clean close that completed via N > 1 rounds is still clean. Multiple rounds aren't a defect; they're the discipline doing its job. Each round's findings + dispositions get appended to the cumulative closed-list memory file.
+
+The pattern catches real bugs: a fix that restructures a wait/wake mechanism (e.g. from single-waiter Rendez to multi-waiter poll_waiter_list to break an ABBA deadlock) may introduce a new pop-and-copy race window that loses notes under contention — a defect the round-1 fixes create that round-1 review didn't see.
+
+## Design conversation -> scripture commit (mid-project pattern)
+
+When an implementation chunk surfaces a non-trivial design question -- a new mechanism, a load-bearing decision, an invariant not yet in scripture -- the workflow is:
+
+1. **Stop the implementation.** Don't try to design-while-coding. Stop, surface to the user.
+2. **Surface as a structured option set.** Not a yes/no; lay out 2-4 options with their consequences. Auto-mode bias is "make the call" -- but scripture-altering decisions are explicitly outside auto-mode and warrant the user's vote.
+3. **Have the conversation in-session.** Iterate to user signoff in one round-trip where possible.
+4. **Land the design as a SCRIPTURE COMMIT FIRST -- no code.** The commit updates `ARCHITECTURE.md` / `NOVEL.md` / phase-design docs / `CLAUDE.md` / `ROADMAP.md` as needed, and adds a memory-file index entry. The commit message names the design decision, the rationale, the alternatives considered, and the open questions resolved.
+5. **THEN implement** in a subsequent commit that references the scripture commit's SHA in its message.
+6. **THEN audit** (the standard pattern for audit-bearing implementations).
+
+The pattern is "scripture before code, every time the code would otherwise determine the scripture." It produces audit-traceable design history and makes the implementation auditable against a fixed reference. The scripture commit is short, focused, and reversible if implementation surfaces a flaw in the design.
+
+## Plain ASCII commit messages
+
+Commit message bodies (and the first line) use plain ASCII. Specifically:
+- **No em-dashes** (the Unicode em-dash character). Use `--` instead.
+- **No Unicode arrows** (`→`, `←`, `↑`, `↓`). Use `->`, `<-`, `^`, `v`.
+- **No section signs** (`§`). Use `section` or just the number.
+- **No Unicode quotes** (the typographic forms). Use ASCII `"..."`, `'...'`.
+- **No comparison glyphs** (`≥`, `≤`, `≠`). Use `>=`, `<=`, `!=`.
+- **No emoji** unless the user explicitly requests them in the message.
+
+Why: clean diff against `git log`, clean grep over the log, consistent rendering across terminals and CI dashboards, and one fewer thing for a future maintainer's editor / pager to mishandle. Doc files (`docs/*.md`, `CLAUDE.md`) and code comments may use Unicode freely; **commit messages stay ASCII**.
+
+Pass commit message bodies via a HEREDOC for the same robustness reason:
+```bash
+git commit -m "$(cat <<'EOF'
+Title line under 70 chars.
+
+Body paragraphs use plain ASCII (-- not em-dash; -> not arrow; etc.).
+
+Co-Authored-By: <model identifier>
+EOF
+)"
+```
 
 ## Per-chunk commit anatomy (substantive + hash fixup)
 
@@ -1284,6 +1386,45 @@ serially as a regression check before declaring the failure real.
 
 Codify the cmake invocations for the project once during bootstrap; reference
 them in CLAUDE.md so each session knows the exact commands.
+
+### Audit-in-flight parallel work + re-audit on dirty close
+
+Two related patterns codified in the CLAUDE.md template ("Audit-in-flight parallel work" + "Re-audit on dirty close" sections):
+
+**Audit-in-flight parallel work**: when the focused audit prosecutor is running in the background, do not idle and do not poll. Two activities in parallel — both required:
+1. Useful non-colliding work (docs, status, prep for next chunk, sibling-subsystem refactors). The agent's prompt scoped its file list; respect that scope.
+2. Self-audit on the SAME surface as the agent. Two independent prosecutors catch different bugs.
+
+When the agent completes, merge findings (don't segregate agent-found vs self-found — they're all findings with equal severity rigor).
+
+**Re-audit on dirty close**: when an audit returns dirty (any P0, OR (P1 + P2) >= 6, OR structurally invasive fixes), schedule a follow-up audit round on the close commit. The follow-up:
+1. Treats the round-N closed list as do-not-re-report preamble.
+2. Focuses on the fixes themselves (named in a "round N+1 focus areas" section).
+3. Runs the audit-in-flight parallel-work discipline again.
+4. Repeats until clean.
+
+Invasive fixes (restructured wait/wake mechanisms, lifted lock-order rules, changed primitives) genuinely introduce new bugs. Round-2 routinely finds defects round-1 missed because round-1 didn't see the fixes yet. The discipline is non-optional for audit-bearing chunks.
+
+Codify both sections into the CLAUDE.md template so the discipline is encoded from day one.
+
+### Design conversation -> scripture commit (mid-project pattern)
+
+Codified in the CLAUDE.md template ("Design conversation -> scripture commit"). When an implementation chunk surfaces a non-trivial design question mid-stream:
+
+1. Stop the implementation (don't design-while-coding).
+2. Surface as a structured option set (2-4 options with consequences).
+3. Have the conversation in-session to user signoff.
+4. Land the design as a SCRIPTURE COMMIT FIRST (no code).
+5. THEN implement (referencing the scripture commit's SHA).
+6. THEN audit.
+
+The pattern is "scripture before code, every time the code would otherwise determine the scripture." It produces audit-traceable design history and decouples the design decision from implementation risk.
+
+### Plain ASCII commit messages
+
+Codified in the CLAUDE.md template ("Plain ASCII commit messages"). Commit message bodies (first line + body) use plain ASCII: no em-dashes, no Unicode arrows, no section signs, no Unicode quotes, no comparison glyphs, no emoji unless explicitly requested. Doc files and code comments may use Unicode freely; commit messages stay ASCII for diff/grep/render consistency.
+
+Always pass the message body via HEREDOC for robustness.
 
 ### As-built REFERENCE doc, distinct from ARCHITECTURE.md
 

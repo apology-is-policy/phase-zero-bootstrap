@@ -115,11 +115,11 @@ After Gate 3, the bootstrap sets up the operational artifacts that enforce the f
 
 - **Mission** — copied from VISION.md.
 - **Design-first policy** — what Phase 0 means, when it's active.
-- **Spec-first policy** — if a feature touches a load-bearing invariant, the TLA+ model comes BEFORE the implementation. Concrete six-step pattern. Includes TLA+ tools installation instructions.
+- **Verification-rigor policy** — the user picks the method at Phase 4 (it is optional, not assumed): **(a) formal specification** — the TLA+ model comes BEFORE the implementation (concrete six-step pattern + TLA+ tools install); or **(b) deep reasoning** — the invariant argued in prose (design doc + commit + reference doc) and validated by the adversarial audit + the test suite. Either way the invariant is pinned in writing before merge. Revisitable: a project may start with (a) and move to (b) once invariant discipline is proven.
 - **Audit-triggering changes** — a project-specific trigger table listing which subsystems require an adversarial soundness audit before merge. Includes the prosecutor agent prompt template.
 - **Invariants that must hold** — copied verbatim from ARCHITECTURE.md §N, kept in sync.
 - **Regression testing** — every audit finding that can be made to fail without the fix MUST land a regression test. Test matrix baseline (default + ASan + TSan, extend with ubsan/msan/fuzzers).
-- **Implementation patterns** — idempotency on retry, compile-time invariants, split-big-chunks-into-sub-chunks, crash-injection + fault-injection testing.
+- **Implementation patterns** — idempotency on retry, compile-time invariants, split-big-chunks-into-sub-chunks, **chunk-completeness (pull dependencies forward; deferral needs signoff — too many quiet deferrals become silent omissions)**, crash-injection + fault-injection testing.
 - **Autonomy + escalation** — default stance and always-escalate cases (format breaks, destructive ops, ARCH deviations, scope pivots).
 - **Git + commit discipline** — detailed commit messages with prose rationale; per-chunk commits; `Co-Authored-By` footer; prefer new commits over `--amend`; never skip hooks; never force-push to main.
 - **Memory + session continuity** — protocol for `MEMORY.md`, `project_active.md`, `project_next_session.md`, `audit_rN_closed_list.md`. Frontmatter format. Handoff protocol.
