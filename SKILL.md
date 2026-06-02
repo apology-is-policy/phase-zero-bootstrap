@@ -25,6 +25,8 @@ If the repo already has Phase 0 artifacts, ask the user whether they want to ref
 3. **Adversarial audits gate invariant-bearing merges.** Not ceremony — each audit round has historically surfaced bugs the test suite didn't catch.
 4. **ARCHITECTURE.md and ROADMAP.md are binding scripture.** Implementation deviations either update scripture first or are reverted.
 5. **Session continuity is preserved.** Memory files + status docs mean a context compaction or new session instance is a no-op for quality.
+6. **The system is OURS — whole-system stewardship.** There is no "my chunk": a green chunk inside an unsound system is worth nothing, a soundness threat anywhere outranks chunk completion, and you never verify *around* a known instability.
+7. **Ground truth before theory.** For an elusive bug (corruption-class, inconsistent repro, recurred-after-"resolved"), establish the reproducible mechanism before fixing; distrust hollow "AUDITED CLEAN" closes.
 
 ## The flow
 
@@ -381,7 +383,7 @@ Before writing CLAUDE.md, **ask the user which verification method this project 
 - **(a) Formal specification (spec-to-code / spec-first)** — TLA+ (or similar) model written + TLC-checked BEFORE the implementation, with buggy-config counterexamples and a SPEC-TO-CODE mapping. Highest assurance; highest cost; needs the TLA+ toolchain + the modeling skill. Best when the invariants are concurrency/ordering-heavy and the cost of a runtime bug is very high.
 - **(b) Deep reasoning** — the invariant is argued explicitly in prose (design doc + file-header + commit message + reference doc) and validated by the adversarial audit round + the test suite. Lighter; faster; no toolchain. Best when the team trusts its invariant discipline and the audit+test floor is strong.
 
-Present it as a clear choice (offer a recommendation if the project's risk profile points one way), get the user's pick, and **write the CHOSEN variant into CLAUDE.md's verification-rigor policy** (below) — keep the chosen one, drop or footnote the other. The choice is revisitable: a project may start with (a) and later move to (b) (a common path once invariant discipline is proven), or suspend (a) per-chunk — record any such change in CLAUDE.md with the rationale + user signoff. If the user has no preference, default to (a) for a from-scratch low-level project (formal modeling earns its cost early), but say so.
+Present it as a clear choice (offer a recommendation if the project's risk profile points one way), get the user's pick, and **write the CHOSEN variant into CLAUDE.md's verification-rigor policy** (below) — keep the chosen one, drop or footnote the other. The choice is revisitable: a project may start with (a) and later move to (b) — **this is the common, expected trajectory, not a failure.** Formal modeling earns its cost early, while the invariant *vocabulary* is still being established: it is as much a thinking aid — it forces you to state the invariant precisely — as it is a checker. Once invariant discipline is proven and the adversarial-audit + test floor is strong, new features can graduate to (b). When a project graduates, **the formal specs already written are NOT deleted: their buggy-config counterexamples stay pre-commit regression gates** for the subsystems they model — you keep the assurance you already built; only *new* invariant-bearing features skip the model. Record any such switch (or a per-chunk suspension) in CLAUDE.md with the rationale + user signoff. If the user has no preference, default to (a) for a from-scratch low-level project (the early formal pass earns its cost, and graduating later is cheap), but say so.
 
 ### CLAUDE.md
 
@@ -395,6 +397,20 @@ Operating notes for Claude when working on {PROJECT_NAME}.
 ## Mission
 
 {One paragraph — copy from VISION.md's Mission section.}
+
+## Whole-system stewardship — there is no "my chunk"
+
+The system is OURS, not yours. Every session inherits the ENTIRE tree — not just the sub-chunk it was spawned to land. **Care about the code you did NOT touch exactly as much as the code you did.** A bug, instability, or unsoundness anywhere is your problem the moment you see it. "Pre-existing," "not my chunk," "known flake," "someone else's subsystem," "out of scope for this session" are not reasons to lower a defect's priority — they are the precise rationalizations that let real defects rot across session boundaries, each session tending its own plot while the commons decays.
+
+**Why this is binding, not sentiment:** a chunk's value is entirely *derivative* of the system's soundness. A perfectly-implemented, audited, green sub-chunk landed into a system that is buggy or unsound is worth **nothing** — the achievement evaporates the moment the system it lives in falls over. Local correctness is necessary but never sufficient; the only deliverable that counts is a sound *system*. Caring about your chunk therefore *requires* caring about the whole — they are not separable.
+
+Concrete obligations:
+- **A soundness threat outranks chunk completion — anywhere it lives.** Surface an inherited instability (a corruption-class symptom, a concurrency race, a deferred-forever hazard, a "flake") with at least the weight you give your own deliverable; resolving-or-properly-escalating it is part of the job, even in a subsystem you never opened.
+- **Never verify *around* an instability.** If your chunk passes only because you dodged the configuration that exercises a known hazard (verifying single-threaded to avoid a concurrency race, skipping a sanitizer, narrowing a stress test), your chunk is **NOT verified** — the dodge is itself the bug. A green result obtained by avoidance is a *misleading* result, worse than a red one.
+- **Inherited defects are now yours.** The tree's open soundness debt is your debt to weigh, not "the prior session's problem." Don't let a chain of sessions each punt it as "adjacent."
+- **Report the system, not just the chunk.** End-of-iteration summaries lead with system soundness — does the whole thing still build, boot, stay up, hold its invariants under the *real* configuration — *then* the chunk. A green chunk reported without its system-level caveats reads as "all is well" when it may not be.
+
+This is the stewardship twin of the "distrust hollow AUDITED CLEAN closes" rule and the ground-truth-first debugging discipline below: the same convenience-seeking instinct that wants to wave a bug away as "just a flake" also wants to wave it away as "not my chunk." Resist both. **It is all ours.**
 
 ## Design-first policy (Phase 0)
 
@@ -436,7 +452,7 @@ This project uses **{FILL IN AT PHASE 4: "formal specification (spec-first)" OR 
 3. The **adversarial audit round + the test suite are the rigor floor** — they stand in for TLC. The audit prosecutes the articulated invariant; regression tests pin the behavior (every demonstrated bug gets a test that fails pre-fix, passes post-fix).
 4. **If you cannot articulate the invariant clearly in prose, you don't understand it well enough to implement it.**
 
-Method (b) is the lighter, toolchain-free path. A project on (a) may suspend it per-chunk, or switch wholesale to (b), once invariant discipline is proven — record the change + the user signoff here.
+Method (b) is the lighter, toolchain-free path. A project on (a) may suspend it per-chunk, or switch wholesale to (b), once invariant discipline is proven — record the change + the user signoff here. **Even after switching, any spec already written stays live as a regression gate:** an impl change that touches a mechanism an existing spec models re-runs that spec's buggy config(s) pre-commit. Under (b) the **adversarial audit round + the runtime test suite are the load-bearing rigor floor** — they are what actually catches the invariant violation, with the prose articulation standing in for the TLC run.
 
 ### Both methods
 
@@ -606,13 +622,17 @@ If the current chunk's **proper and complete** implementation depends on an item
 
 **Why this is binding:** too many quiet deferrals compound into **silent omissions** — the system ends up not actually doing what scripture says it does, and nobody decided that on purpose. Bias the default toward completeness; put the burden of proof on *deferring*, not on *building*. (This is the chunk-scoped form of the build-vs-defer judgment: a dependency of the current chunk defaults to build-now; only a genuinely-separable foreseeable-but-not-yet item is deferred, and turning a real current-chunk dependency into a deferral is what needs signoff.)
 
+This is the **depth-first** stance: when a foundational dependency surfaces mid-chunk, preempt the parent and fully build the dependency — with its own design + audit if it is invariant-bearing — *then* resume the parent, rather than seaming it off and deferring indefinitely. Pulling the latent hazard forward is the same instinct as the whole-system-stewardship rule above (don't let a hazard rot across boundaries); pulling the dependency forward is its feature-shaped twin.
+
 ### Crash-injection + fault-injection testing
 
 For torn-write-sensitive paths (persistent state machines, multi-phase commits), wire fault-injection hooks at every durable write. Test that recovery from each injection point produces a valid state. Same pattern applies to interrupt injection in schedulers, fault injection in fault-tolerant networking, and partial-failure injection in distributed systems.
 
 ## Autonomy + escalation
 
-**Default stance:** When the user grants autonomy ("you can proceed autonomously," etc.), proceed on implementation, testing, formal modeling, audit triage, commit, and push to your own branch.
+**Default stance:** When the user grants autonomy ("you can proceed autonomously," etc.), proceed on implementation, testing, verification, audit triage, and **commit to the local working branch**.
+
+**Commit is autonomous; push is not (the default).** A commit is local and reversible; a push is outward-facing — it publishes to a remote, may trigger CI, and is hard to retract. The safe default, and the one long-arc collaborations converge on, is **the model commits; the user pushes.** Track the un-pushed local stack in the handoff doc ("OWED: push through `<tip SHA>`") so the user can flush it when ready. Push only when the user has explicitly and durably authorized it for this project — and even then, never to a shared branch and never force.
 
 **Always escalate (autonomy does NOT cover these):**
 - Format breaks (on-disk version bumps, wire-protocol ABI changes, syscall interface changes).
@@ -620,7 +640,7 @@ For torn-write-sensitive paths (persistent state machines, multi-phase commits),
 - Architectural deviations from ARCHITECTURE.md — either update ARCH first (with user approval) or revert the deviation.
 - Cross-phase scope pivots — pulling *unrelated* future scope into the current phase, OR **deferring an item the current chunk depends on** (see "Chunk completeness — pull dependencies forward"), must be confirmed. Pulling a genuine *dependency* forward to complete the current chunk to its fullest spec is preferred and does NOT need confirmation — note it and proceed.
 - Anything unclear in ARCH / ROADMAP / NOVEL / VISION.
-- Anything visible to others (pushes to shared branches, PR creation, external API calls, Slack/email posting).
+- Anything visible to others (any push to a remote, PR creation, external API calls, Slack/email posting).
 - Spending significant compute or external budget.
 
 **Deviation tracking:** If implementation diverges from ARCH / ROADMAP, surface it explicitly:
@@ -632,7 +652,7 @@ For torn-write-sensitive paths (persistent state machines, multi-phase commits),
 
 - **Detailed commit messages** with prose rationale. Each commit message explains WHAT changed, WHY, and what the alternative was (if the decision was non-obvious). First line under ~70 chars; body has the reasoning.
 - **Per-chunk commits**, not per-day. A chunk is a coherent, testable, revertable unit.
-- **`Co-Authored-By` footer** on AI-assisted commits. Stratum uses: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`. Adapt per Anthropic guidance.
+- **`Co-Authored-By` footer** on AI-assisted commits, naming the model that did the work: `Co-Authored-By: Claude <model-id> <noreply@anthropic.com>`. Read the current model identifier from the session each time — it advances over a project's life, so do NOT hardcode a version that will silently go stale.
 - **Prefer new commits over `--amend`.** Amending rewrites history; hook failures may hide in the prior commit. Exception: if the user explicitly asks for an amend.
 - **Never force-push to main.** Never force-push shared branches without explicit user approval.
 - **Never skip hooks** (`--no-verify`, `--no-gpg-sign`) unless the user explicitly requests it. If a pre-commit hook fails, diagnose and fix the underlying issue.
@@ -649,15 +669,16 @@ This project uses Claude Code's auto-memory (`~/.claude/projects/<project-hash>/
 - `user_profile.md` (optional) — user's role, preferences, preferred style.
 - `feedback_*.md` — durable feedback (do and don't rules) that should survive context compaction.
 
-Every memory file has frontmatter:
+Every memory file has frontmatter in the current Claude Code auto-memory format — one fact per file, with a one-line pointer added to `MEMORY.md` (the index loaded into context each session):
 ```
 ---
-name: {short name}
-description: {one-line description used to decide relevance in future conversations}
-type: {user, feedback, project, reference}
-originSessionId: {session id where this was first written; for traceability}
+name: {short-kebab-case-slug}
+description: {one-line summary — used to decide relevance during recall}
+metadata:
+  type: user | feedback | project | reference
 ---
 ```
+In the body, link related memories with `[[other-memory-slug]]`. Before creating a file, check for an existing one that already covers the fact — update it rather than duplicate. Delete a memory that turns out to be wrong. (The harness may add `node_type` / `originSessionId` under `metadata:` automatically; you write `type:`.)
 
 ### Handoff protocol
 
@@ -842,6 +863,29 @@ On a dirty close, the fixes themselves may introduce new bugs — **schedule a f
 A clean close that completed via N > 1 rounds is still clean. Multiple rounds aren't a defect; they're the discipline doing its job. Each round's findings + dispositions get appended to the cumulative closed-list memory file.
 
 The pattern catches real bugs: a fix that restructures a wait/wake mechanism (e.g. from single-waiter Rendez to multi-waiter poll_waiter_list to break an ABBA deadlock) may introduce a new pop-and-copy race window that loses notes under contention — a defect the round-1 fixes create that round-1 review didn't see.
+
+## Elusive bugs — ground truth before theory
+
+When you hit an **elusive bug** — a corruption-class symptom, an inconsistent repro, a cross-layer fault, or a bug a prior session "resolved" that recurred — **STOP theorizing and establish ground truth FIRST.** The failure modes that waste the most time, in order of cost:
+
+- **Theorizing a root cause and "fixing" it without proving the mechanism.** The fix masks the symptom; the bug returns sessions later wearing a different face.
+- **Trusting a masking-bug stack.** The visible symptom is downstream of a different, quieter defect; "fixing" the symptom just relocates it.
+- **Trusting a hollow "AUDITED CLEAN" / "resolved" close.** A close with no reproduction and no regression test is a *hypothesis*, not a fix. Distrust it; re-derive the ground truth yourself.
+
+**The method:** (1) reproduce deterministically — find the *discriminator*, the smallest config delta that flips the symptom (single-vs-multi-threaded, sanitizer on/off, this input vs that, this commit vs its parent). (2) Instrument to **observe** the corruption at its source, not infer it from downstream rubble. (3) Bisect the *mechanism*, not just the commit. (4) Only then fix — and land a regression test that fails pre-fix, passes post-fix. **Ground truth over theory, every time.**
+
+Scaffold a `docs/DEBUGGING-PLAYBOOK.md` and grow it the first time an elusive bug is solved this way — a case-study journal of the method plus the specific bugs it caught (the discriminator that cracked each one, the masking stack that hid it). It becomes mandatory reading the next time a corruption-class / inconsistent-repro / recurred bug appears, so the method compounds instead of being re-derived each time. This composes with whole-system stewardship: the convenience-seeking instinct that wants to wave a bug away as "just a flake" is the same one that skips the ground-truth step. (Consider a companion `elusive-bug-hunt` skill that auto-surfaces the condensed method; the playbook is the full journal.)
+
+## Research prior art before surfacing a design fork
+
+Before you take a design fork to the user (the pattern below), do the homework that makes the fork legible -- and often dissolves it. A fork surfaced cold ("A or B?") makes the user do research you should have done. In order:
+
+1. **How does the canonical / reference system in this domain solve it?** Most domains have a lineage system whose model you are (consciously or not) inheriting. Name how it does this exact thing; its answer is usually load-bearing.
+2. **What is the current state-of-the-art?** Look at the closest peer systems -- the ones that share your project's core constraints, not merely the most popular ones (whose assumptions may not map onto your model). Name the mechanism each uses, not just the product.
+3. **How well does each fit this project?** Ground the fit in VERIFIED facts about the codebase -- which mechanisms already exist, which invariants apply, what the project's idiom is. Check; don't assume.
+4. **Improvement / novel angle?** The best answer is often a synthesis of the lineage idiom and the SOTA. If it's genuinely new, record it as a candidate even when you defer building it.
+
+Then surface the fork WITH the research attached: each option annotated by precedent, fit, and cost. Often the research collapses the options to one obvious choice -- make the call and report the reasoning instead of asking. Escalate only the residue the research can't resolve (a value/scope tradeoff that is genuinely the user's to weigh).
 
 ## Design conversation -> scripture commit (mid-project pattern)
 
@@ -1033,12 +1077,46 @@ Create the following directories and files:
 │   ├── ROADMAP.md                        # from Phase 3
 │   ├── phase1-status.md                  # template (first impl phase)
 │   ├── REFERENCE.md                      # as-built top-level index (template below)
+│   ├── DEBUGGING-PLAYBOOK.md             # ground-truth-first method; grows when the first elusive bug lands
 │   └── reference/
 │       └── 00-overview.md                # as-built overview template (below)
 ├── specs/
 │   ├── README.md                         # TLA+ setup + run instructions
 │   └── (spec files appear during impl)
 └── (language-specific dirs appear per ARCH decision)
+```
+
+`docs/DEBUGGING-PLAYBOOK.md` is seeded with the method skeleton (the "Elusive bugs — ground truth before theory" discipline) and grown into a case-study journal the first time an elusive bug is solved. Seed template:
+
+```markdown
+# DEBUGGING-PLAYBOOK
+
+Mandatory reading when an elusive bug appears: a corruption-class symptom,
+an inconsistent repro, a cross-layer fault, or a bug a prior session
+"resolved" that recurred.
+
+## The method (ground truth before theory)
+
+1. **Reproduce deterministically — find the discriminator.** The smallest
+   config delta that flips the symptom (single-vs-multi-threaded, sanitizer
+   on/off, this input vs that, this commit vs its parent). No discriminator
+   means you cannot yet see the bug — keep narrowing.
+2. **Observe, don't infer.** Instrument to watch the corruption at its
+   source; do not reason backward from downstream rubble.
+3. **Bisect the mechanism, not just the commit.** The offending commit
+   often only *exposes* a latent defect; name the mechanism.
+4. **Fix, then prove.** Land a regression test that fails pre-fix and
+   passes post-fix. A fix with no failing-pre-fix test is a hypothesis.
+
+Suspect masking-bug stacks (the visible symptom is downstream of a quieter
+defect). Distrust hollow "AUDITED CLEAN" / "resolved" closes that carry no
+reproduction and no regression test.
+
+## Case studies
+
+(One entry per elusive bug solved this way: symptom, the discriminator that
+cracked it, the mechanism, the masking stack if any, the fix + its
+regression test.)
 ```
 
 The REFERENCE.md + reference/00-overview.md are seeded as templates;
@@ -1186,10 +1264,10 @@ user_profile.md                # from the Phase 1 interview (role, style)
 `project_active.md` template:
 ```markdown
 ---
-name: {PROJECT_NAME} — active state
+name: {project-name}-active-state
 description: {one-line}
-type: project
-originSessionId: {session id}
+metadata:
+  type: project
 ---
 
 Phase 0 {complete / in progress}. ARCHITECTURE.md + ROADMAP.md at {tip SHA}. {N} novel angles committed. {M} load-bearing invariants identified. Next: Phase 1 implementation — {first phase name} per ROADMAP.md.
@@ -1198,10 +1276,10 @@ Phase 0 {complete / in progress}. ARCHITECTURE.md + ROADMAP.md at {tip SHA}. {N}
 `project_next_session.md` template:
 ```markdown
 ---
-name: {PROJECT_NAME} — next-session pickup
+name: {project-name}-next-session-pickup
 description: Session pickup pointer. {status}
-type: project
-originSessionId: {session id}
+metadata:
+  type: project
 ---
 
 READ FIRST, in this order:
@@ -1407,6 +1485,14 @@ Invasive fixes (restructured wait/wake mechanisms, lifted lock-order rules, chan
 
 Codify both sections into the CLAUDE.md template so the discipline is encoded from day one.
 
+### Whole-system stewardship
+
+Codified in the CLAUDE.md template ("Whole-system stewardship — there is no 'my chunk'"). The system is OURS; every session inherits the whole tree. A soundness threat anywhere outranks chunk completion; inherited defects are now yours; **never verify around a known instability** (a green obtained by dodging the hazard configuration is a misleading green, worse than a red). End-of-iteration summaries lead with system soundness, then the chunk. This is the same convenience-resistance as the ground-truth-debugging + distrust-hollow-closes disciplines — surface it proactively when a session is tempted to wave a defect off as "pre-existing / not my chunk / just a flake."
+
+### Elusive bugs — ground truth before theory
+
+Codified in the CLAUDE.md template ("Elusive bugs — ground truth before theory"). When a bug is corruption-class, inconsistent-repro, cross-layer, or recurred-after-"resolved": establish the reproducible mechanism (find the discriminator) before fixing; observe the corruption at its source rather than inferring it; land a regression test that fails pre-fix. Scaffold + grow `docs/DEBUGGING-PLAYBOOK.md` as a case-study journal so the method compounds across sessions. Distrust hollow "AUDITED CLEAN" / "resolved" closes. A companion `elusive-bug-hunt` skill can auto-surface the condensed method.
+
 ### Design conversation -> scripture commit (mid-project pattern)
 
 Codified in the CLAUDE.md template ("Design conversation -> scripture commit"). When an implementation chunk surfaces a non-trivial design question mid-stream:
@@ -1609,6 +1695,8 @@ Refresh the visualization in `project_active.md` at every session boundary so a 
 - Skipping the audit policy because "we'll add it later" — it has to be in place from day one.
 - Starting implementation during the bootstrap.
 - Accepting "no invariants apply" — every low-level system has load-bearing invariants; if none are obvious, the design hasn't gone deep enough.
+- Treating a defect as "not my chunk," or verifying *around* a known instability (single-thread-to-dodge-a-race, sanitizer-off) to get a green result.
+- Theorizing a root cause for an elusive bug and "fixing" it without establishing ground truth — or trusting a hollow "AUDITED CLEAN" / "resolved" close that carries no reproduction and no regression test.
 
 ## Success criteria for the bootstrap
 

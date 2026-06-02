@@ -114,12 +114,14 @@ After Gate 3, the bootstrap sets up the operational artifacts that enforce the f
 **CLAUDE.md** — the central operating contract. The skill instantiates a long, detailed template tailored to the project's specifics. Sections include:
 
 - **Mission** — copied from VISION.md.
+- **Whole-system stewardship** — there is no "my chunk": a green chunk in an unsound system is worth nothing, a soundness threat anywhere outranks chunk completion, and you never verify *around* a known instability.
 - **Design-first policy** — what Phase 0 means, when it's active.
 - **Verification-rigor policy** — the user picks the method at Phase 4 (it is optional, not assumed): **(a) formal specification** — the TLA+ model comes BEFORE the implementation (concrete six-step pattern + TLA+ tools install); or **(b) deep reasoning** — the invariant argued in prose (design doc + commit + reference doc) and validated by the adversarial audit + the test suite. Either way the invariant is pinned in writing before merge. Revisitable: a project may start with (a) and move to (b) once invariant discipline is proven.
 - **Audit-triggering changes** — a project-specific trigger table listing which subsystems require an adversarial soundness audit before merge. Includes the prosecutor agent prompt template.
 - **Invariants that must hold** — copied verbatim from ARCHITECTURE.md §N, kept in sync.
 - **Regression testing** — every audit finding that can be made to fail without the fix MUST land a regression test. Test matrix baseline (default + ASan + TSan, extend with ubsan/msan/fuzzers).
 - **Implementation patterns** — idempotency on retry, compile-time invariants, split-big-chunks-into-sub-chunks, **chunk-completeness (pull dependencies forward; deferral needs signoff — too many quiet deferrals become silent omissions)**, crash-injection + fault-injection testing.
+- **Research prior art before a design fork** — before surfacing a design choice to the user, research how the canonical/reference system in the domain solves it, the current SOTA among the closest peers (those sharing the project's core constraints), the fit for this project's *verified* constraints, and any novel synthesis. Often collapses the fork to one obvious call; escalate only the residue. A cold "A or B?" makes the user do research the model should have done.
 - **Autonomy + escalation** — default stance and always-escalate cases (format breaks, destructive ops, ARCH deviations, scope pivots).
 - **Git + commit discipline** — detailed commit messages with prose rationale; per-chunk commits; `Co-Authored-By` footer; prefer new commits over `--amend`; never skip hooks; never force-push to main.
 - **Memory + session continuity** — protocol for `MEMORY.md`, `project_active.md`, `project_next_session.md`, `audit_rN_closed_list.md`. Frontmatter format. Handoff protocol.
@@ -129,6 +131,7 @@ After Gate 3, the bootstrap sets up the operational artifacts that enforce the f
 - **When to recommend `/compact`** — soft vs STRONG recommendation, with explicit criteria for each.
 - **Autonomy modes (stopping signals)** — common modes and how to surface them.
 - **Self-audit before formal audit** — 30–60 second self-review pass for known-hazard categories before spawning the prosecutor agent.
+- **Elusive bugs — ground truth before theory** — for corruption-class / inconsistent-repro / recurred-after-"resolved" bugs, establish the reproducible mechanism (the discriminator) before fixing; scaffold a `docs/DEBUGGING-PLAYBOOK.md` case-study journal; distrust hollow "AUDITED CLEAN" closes.
 - **Per-chunk commit anatomy** — substantive commit + hash-fixup follow-up. Commit message structure with mechanism block, "alternative considered" rationale, trade-offs section, files annotation, audit posture, "what does this chunk close vs. defer" precision.
 - **Reference doc tip-snapshot pattern** — `docs/REFERENCE.md` accumulates a back-traceable narrative chain at top; each chunk advances the tip with full detail; predecessors demoted to one-liners; ~10-chunk back-window.
 - **Deferred-finding discipline** — silent drops are forbidden; the close commit explicitly enumerates deferred items with priority + finding number + named successor chunk.
@@ -149,6 +152,7 @@ After Gate 3, the bootstrap sets up the operational artifacts that enforce the f
 │   ├── ROADMAP.md
 │   ├── phase1-status.md
 │   ├── REFERENCE.md
+│   ├── DEBUGGING-PLAYBOOK.md
 │   └── reference/
 │       └── 00-overview.md
 ├── specs/
@@ -183,19 +187,27 @@ This is the heart of what the skill establishes. The artifacts are not documenta
 
 Phase 0 produces written, reviewed, versioned documents. No implementation pressure. Architectural decisions compound — a wrong choice in the concurrency model, the on-disk format, or the fault model becomes irrevocable once thousands of lines depend on it. Phase 0 is the window during which those decisions are still cheap.
 
-### Formal specifications come before implementation
+### Verification rigor comes before implementation — by the chosen method
 
-Any feature that touches a load-bearing invariant gets its TLA+ (or equivalent) model first. The spec is the source of truth; code is an implementation of the spec. When the spec catches a bug, the bug costs minutes at the spec level instead of commits at the runtime level.
+Any feature that touches a load-bearing invariant has its invariant **pinned in writing and validated before merge**, by one of two methods the user picks at Phase 4: **(a) formal specification** — a TLA+ (or equivalent) model written first, the spec as source of truth, with `_buggy.cfg` counterexamples and a SPEC-TO-CODE mapping; or **(b) deep reasoning** — the invariant argued in prose (design doc + file header + commit + reference doc) and validated by the adversarial audit round + the test suite. The (a) pattern is six explicit steps: propose in prose → model in TLA+ → iterate until TLC is green → write a `_buggy.cfg` → implement with SPEC-TO-CODE references → extend the spec FIRST when new mechanisms appear.
 
-The pattern is six explicit steps: propose in prose → model in TLA+ → iterate until TLC is green → write a `_buggy.cfg` that demonstrates the failure mode → implement against the model with SPEC-TO-CODE references → extend spec FIRST when new mechanisms appear.
+(a) is highest-assurance and earns its cost early, while the invariant *vocabulary* is still forming (it is as much a thinking aid as a checker); the **common, expected trajectory graduates to (b)** once invariant discipline is proven and the audit + test floor is strong. Graduating does NOT discard the specs already written — their buggy configs stay pre-commit regression gates for the subsystems they model; only *new* invariant-bearing features skip the model.
 
-**Slogan: if you cannot articulate the invariant formally, you don't understand it well enough to implement it.**
+**Slogan: if you cannot articulate the invariant — formally or in clear prose — you don't understand it well enough to implement it.**
 
 ### Adversarial audits gate invariant-bearing merges
 
 Not ceremony. Each round has historically surfaced bugs the test suite didn't catch, and the pattern is that regressions in invariant-bearing surfaces are not caught by tests. The CLAUDE.md template ships a prosecutor-agent prompt that instructs the audit agent to **prosecute, not defend**: brutal but grounded, quote code don't paraphrase, prosecution chains with state → step → step → violation.
 
 Findings are catalogued by severity (P0 active break / P1 latent break / P2 hazard / P3 nice-to-have). Every P0/P1/P2 is fixed before merge. Every audit finding that can be made to fail without the fix MUST land a regression test.
+
+### The system is ours — whole-system stewardship
+
+There is no "my chunk." Every session inherits the entire tree and is responsible for its soundness, not just the sub-chunk it was spawned to land. A chunk's value is *derivative* of the system's soundness — a perfectly-implemented, audited, green sub-chunk inside a system that is buggy or unsound is worth nothing. So a soundness threat anywhere outranks chunk completion, inherited defects are now yours, and you **never verify *around* a known instability** (a green obtained by dodging the hazard configuration — single-threaded to avoid a race, sanitizer off — is a *misleading* green, worse than a red). End-of-iteration summaries lead with system soundness, then the chunk. This is the same convenience-resistance the audit + debugging disciplines demand: the instinct that waves a bug off as "just a flake" is the one that waves it off as "not my chunk."
+
+### Ground truth before theory (elusive bugs)
+
+When a bug is corruption-class, inconsistent-repro, cross-layer, or recurred after a prior "resolved" close, the model stops theorizing and establishes ground truth first: reproduce deterministically (find the discriminator — the smallest config delta that flips the symptom), observe the corruption at its source rather than infer it, bisect the *mechanism* not just the commit, then fix with a regression test that fails pre-fix. The skill scaffolds a `docs/DEBUGGING-PLAYBOOK.md` that grows into a case-study journal so the method compounds across sessions instead of being re-derived — and instructs the model to distrust hollow "AUDITED CLEAN" / "resolved" closes that carry no reproduction and no regression test.
 
 ### ARCHITECTURE.md and ROADMAP.md are binding scripture
 
