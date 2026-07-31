@@ -496,17 +496,57 @@ Pre-commit for invariant-bearing features: spec clean + buggy-config counterexam
 | {subsystem 3} | {files} | {reason} |
 | ... | ... | ... |
 
+**The reviewer is a dedicated agent definition — set it up ONCE.** Don't inline a fresh general-purpose subagent each round; create a reusable agent at `.claude/agents/<project>-reviewer.md` so its standing guidance + model + effort live in one place and every round spawns it identically (with only a scoped per-round prompt on top). The file:
+
+````markdown
+---
+name: <project>-reviewer
+description: Adversarial soundness prosecutor for <project> — spawned per audit round with a scoped prompt.
+model: <strongest model available, e.g. the newest frontier model>
+effort: max
+---
+
+You are an adversarial code reviewer on a production-grade <domain> codebase.
+You prosecute; you never defend.
+
+Model self-report (do this FIRST and LAST, always):
+- The VERY FIRST line of your output must be `MODEL(start): <model name + id>`,
+  and the VERY LAST line `MODEL(end): <model name + id>` — each stating,
+  honestly and independently, which model you are AT THAT MOMENT. Generate the
+  end line fresh as the last thing you do; do not copy the start value.
+- Why both: when model fallback is enabled the underlying model can switch
+  mid-run (e.g. start on the frontier model, fall back partway). A start != end
+  mismatch is the ONLY in-band signal that a mid-run fallback happened, so the
+  two must be independent. Best-effort (self-identification is imperfect), but
+  report it faithfully.
+
+Operating rules:
+- Ground every claim in quoted code with file:line. Quote, don't paraphrase.
+- Read EVERY line of the scope before concluding. Re-read load-bearing
+  functions until you can replay their interleavings from memory.
+- A finding without a concrete prosecution chain (state -> step -> step ->
+  violation) is not a finding. Withdraw anything the code already guards.
+- Respect the do-not-re-report preamble; re-reporting a closed item is noise.
+- "Verified sound" lists are as load-bearing as findings: enumerate every
+  property you checked that survived, so the next reviewer knows the coverage.
+- Be brutal but grounded. Follow the per-run prompt's scope, lenses, severity
+  scale, and report format exactly; honor its read-only constraints.
+````
+
+Pick the **strongest model available** for the reviewer — it's the highest-leverage place to spend capability. If that model has content filters that can trip on the domain (e.g. a security-heavy surface), enable model fallback so a trip degrades to the next-strongest model instead of failing the round — and rely on the start/end self-report to detect when the fallback fired. An on-disk agent definition loads at session START: create the `.claude/agents/*.md` file, then start a fresh session (or use the in-session `/agents` UI) before `subagent_type` resolves.
+
 **How to run an audit round:**
 
-1. Spawn a soundness-prosecutor agent (general-purpose subagent, `run_in_background: true`). Use the most capable model available.
+1. Spawn the dedicated reviewer agent (`subagent_type: <project>-reviewer`, `run_in_background: true`) with a scoped per-round prompt (the template below). Model + effort + the prosecute-not-defend discipline come from the agent definition; the prompt carries only the round-specific scope, invariants, and adversarial categories.
 2. In the prompt, include `memory/audit_rN_closed_list.md` contents as the "already fixed — do not re-report" preamble.
 3. Scope the prompt to the surface you changed.
-4. Tell the agent explicitly to prosecute, not defend. Brutal but grounded.
-5. Wait for the completion notification. Do not poll.
-6. Trust but verify: the agent's summary describes intent; validate quoted file:line references.
-7. Fix every P0/P1/P2 finding before merge. P3 findings get tracked or closed with explicit justification.
+4. Wait for the completion notification. Do not poll.
+5. Trust but verify: validate quoted file:line references AND check the agent's `MODEL(start)` / `MODEL(end)` lines — a mismatch means a mid-run model fallback, so weigh the post-fallback portion of the report accordingly (re-spawn on the stronger model if a key surface was reviewed post-fallback).
+6. Fix every P0/P1/P2 finding before merge. P3 findings get tracked or closed with explicit justification.
 
 ### Prosecutor agent prompt template
+
+(The per-round scoped prompt, spawned via `subagent_type: <project>-reviewer`. The standing prosecute discipline + the `MODEL(start)`/`MODEL(end)` self-report live in the agent definition above; this prompt supplies the round's scope.)
 
 ```
 You are an adversarial soundness prosecutor auditing {scope} against
@@ -553,7 +593,9 @@ Report format per finding:
 **Suggested fix**: <1-2 sentences>
 
 At the end: Summary with counts by severity + confidence notes on
-areas you couldn't audit as deeply as you wanted.
+areas you couldn't audit as deeply as you wanted. Then the final line
+`MODEL(end): <model name + id>` (per your agent definition — report it
+fresh; a mismatch vs MODEL(start) flags a mid-run model fallback).
 
 Be brutal but grounded. Quote code; don't paraphrase it.
 ```
@@ -680,6 +722,17 @@ metadata:
 ```
 In the body, link related memories with `[[other-memory-slug]]`. Before creating a file, check for an existing one that already covers the fact — update it rather than duplicate. Delete a memory that turns out to be wrong. (The harness may add `node_type` / `originSessionId` under `metadata:` automatically; you write `type:`.)
 
+### Memory file size pressure
+
+`MEMORY.md` is loaded into context EVERY session (truncated past ~24 KB), so the always-loaded index — not the linked detail files — is the budget that matters. Keep it tight:
+
+- **Entries are one-line each** (~150-200 chars); the linked file carries the detail. The latest milestone may keep a full paragraph at the bottom of the top block; demote it to a one-liner when superseded.
+- **At a chunk close, if `MEMORY.md` exceeds ~24 KB, trim** the most-recent verbose predecessor to one line before committing.
+- **When trimming hits its floor, ARCHIVE.** A long-lived project accumulates many *legitimately* one-line entries from COMPLETED arcs (resolved bugs, landed design arcs, closed audit lists); once everything is already a one-liner but the index still blows the budget, trimming can't help — split the index. Keep `MEMORY.md` HOT (the pickup pointers, ALL binding feedback, OPEN bugs, the ACTIVE arc's design references, the latest audit close, the compact recent-arc overview) and move the cold entries to `MEMORY-ARCHIVE.md` (read on-demand, never auto-loaded), leaving a one-line `older <X> -> MEMORY-ARCHIVE.md` pointer in each trimmed section.
+  - **This is lossless — the load-bearing point.** Recall surfaces a memory off that FILE's own `description` frontmatter + its `[[wikilinks]]`, NOT off `MEMORY.md`; moving an index line into the archive changes nothing about what gets recalled when its topic is relevant again (a future re-audit of an archived surface still recalls its do-not-re-report set from the closed-list file). Copy the cold lines into the archive **verbatim**; NEVER delete the underlying detail file. `MEMORY.md` regains headroom so recent milestones carry detail again instead of being crushed to one-liners prematurely.
+
+`project_active.md` / `project_next_session.md` are read selectively, not loaded by default, so they may be verbose — they carry the full handoff narrative; `MEMORY.md` just points to them.
+
 ### Handoff protocol
 
 At every session boundary (compaction, explicit handoff, completing a phase/sub-chunk, any point where a new instance might pick up):
@@ -697,6 +750,22 @@ When token/time budget is low:
 - Update memory + status docs thoroughly.
 - Summarize to the user: what landed, what's queued, what the next session picks up.
 - Do NOT land partial work just to close a chunk.
+
+### The checkpoint contract (binding; every time you hand back)
+
+A **checkpoint** is any turn returning control to the user at a resting point — a landed chunk, a closed audit, a surfaced fork, a stopping report. At every checkpoint, do these three WITHOUT BEING ASKED. They exist because the user cannot see what you can see, and the cost of them guessing is real.
+
+**1. Account for every attached shell, monitor, and background task.** Enumerate what is still running and dispose of it explicitly: kill anything finished or whose exit condition can no longer be met; for anything deliberately alive, name it and why in one line; if nothing is running, **say "nothing running"** — silence is not the same statement.
+
+This is binding, not tidiness: an attached session reads to the user as "still working, do not interrupt", so a stray poller silently converts a finished turn into an apparent in-progress one and stalls the human. Verify with a real check (`ps` scoped to the tree/session path), not from memory of what you launched; kill strays by explicit **PID**, never by pattern.
+
+The two recurring stray-generators, both self-inflicted:
+- **Unbounded `until grep <pattern> <file>` waiters.** These never exit on their own. Confirm the producer actually emits the pattern (if you launched it as `cmd | tail -N`, your marker may be in the part you discarded), bound every loop, and remember a remote host can vanish *between* iterations so every `ssh` fails forever.
+- **`cmd &` inside a call that is already backgrounded.** The launcher exits 0 immediately and "completed" describes the launcher, not the work.
+
+**2. Leave the handoff already written, not offered.** If the tree is compactable (clean, green, no open audit round), the handoff must ALREADY be current when you hand back — so the user can compact or say "keep going" with no preparatory round-trip. Do not ask "shall I write the handoff?"; do not wait for compaction to be announced. The Handoff protocol above says *what* to write; this says *when*: **at every checkpoint, in advance.** State it in one clause ("handoff current at `<tip>`"). If the state is NOT compactable, say so and name the one thing that would make it so.
+
+**3. Say what is next, and show the road.** Close every checkpoint with **Next** (the single immediate next action) and **Ahead** (a one-line ordered progression of queued chunks on the current arc, ending at the arc's close — e.g. `fix X -> gate Y -> regen patches -> arc close`). One line; the purpose is orientation without opening the tracker.
 
 ## Phase status docs
 
@@ -739,11 +808,18 @@ After every landed chunk (feature chunk, audit close, doc-only chunk), produce a
 - ROADMAP exit criteria touched: <closes §X.Y "..." / advances §X.Y substrate-only — bridge to /dev/cons surface still open / leaves open §Z.W with successor pointer>.
 - <Deferred audits / open findings carried forward, if any>.
 
+**Running**: <nothing running | each live shell/monitor/background task and why, one line each>.
+
 **Memory + scripture**: MEMORY.md (top entry + latest-milestone + tip ref), project_active.md (description + session-window + cumulative commit list), project_next_session.md (current state + verify-pickup tip extended), docs/phaseN-status.md (landed rows), docs/REFERENCE.md (tip + earlier-tip).
+
+**Handoff**: current at `<tip>` — compactable. | NOT compactable: <the one blocker>.
 
 **Roadmap visualization**: (see Roadmap visualization section)
 
 **Cache window**: <cache stays warm — feasible to continue / cumulative tokens substantial — soft recommendation / STRONG recommendation for /compact>. Rationale: <clean tree at X; tests green; N chunks landed in this session; next chunk Y is fresh-vs-cached subsystem>.
+
+**Next**: <the single immediate next action>.
+**Ahead**: <chunk> -> <chunk> -> <chunk> -> <arc close>.
 
 **Candidate next chunks**: <brief; with deps if non-obvious>.
 ```
@@ -1029,6 +1105,8 @@ Sentinel + success-marker strings are part of the test-harness ABI — they don'
 - **Latest milestone gets full detail** (one paragraph at the bottom of the top block). When superseded, demote to one-liner predecessor.
 - **Predecessor entries trim to one-liner** as new milestones land. Full detail lives in `project_active.md` session-window blocks + the phase status doc.
 - **Size check**: if `MEMORY.md` exceeds ~24 KB on a chunk close, trim the most-recent verbose predecessor down to one line before committing memory updates.
+- **When trimming hits its floor, ARCHIVE — split the index, don't keep shrinking.** A long-lived project accumulates many *legitimately* one-line entries from COMPLETED arcs (resolved bugs, landed design arcs, closed audit lists); once everything is already a one-liner but the index still blows the budget, trimming can't help. Split it in two: keep `MEMORY.md` HOT (loaded every session) and move the cold entries to `MEMORY-ARCHIVE.md` (read on-demand, never auto-loaded). **Hot** = the pickup pointers, ALL binding feedback, OPEN bugs, the ACTIVE arc's design references, the most recent audit close, and the compact "recent arc" overview. **Cold** = resolved bugs from closed arcs, landed design arcs, completed audit closed-lists. Leave a one-line `older <X> -> MEMORY-ARCHIVE.md` pointer in each trimmed section so the path is discoverable.
+  - **This is lossless — that's the load-bearing point.** Recall keys off each memory FILE's own `description` frontmatter + its `[[wikilinks]]`, NOT off `MEMORY.md`; so moving an index line to the archive changes nothing about what gets surfaced when that topic becomes relevant again (e.g. a future re-audit of an archived surface still recalls its do-not-re-report set via the closed-list file's frontmatter). Copy the cold index lines into the archive **verbatim** and NEVER delete the underlying detail file. The archive is just a browsable cold index; `MEMORY.md` regains headroom so recent milestones can carry detail again instead of being crushed to one-liners prematurely. (Mechanically: a `sed`-extract of the cold line-ranges into `MEMORY-ARCHIVE.md`, then a rewritten lean `MEMORY.md` — measure both before swapping.)
 
 `project_active.md` accumulates per-session `## This session window — <chunk> landed` blocks — these can be verbose, since `project_active.md` is read selectively rather than loaded as default context. When a session compacts, ensure both `project_active.md` and `project_next_session.md` carry the full handoff narrative; `MEMORY.md` just points to them.
 
@@ -1380,8 +1458,9 @@ Final step. Summarize the bootstrap to the user:
 1. Confirm VISION, COMPARISON, NOVEL, ARCHITECTURE, ROADMAP, CLAUDE.md all in place.
 2. Confirm specs/ + docs/ + memory/ scaffolded.
 3. Confirm git state: everything committed; no untracked artifacts.
-4. State the next step: "Next session starts Phase 1 per ROADMAP.md. Read CLAUDE.md first, then docs/phase1-status.md, then the relevant ARCHITECTURE sections."
-5. Remind the user: implementation sessions are bound by ARCH + ROADMAP as scripture. Deviations update scripture first.
+4. Account for background work: kill any shell/monitor/background task left from the bootstrap and say so, or state "nothing running". The bootstrap is itself a checkpoint and the contract applies to it.
+5. State the next step: "Next session starts Phase 1 per ROADMAP.md. Read CLAUDE.md first, then docs/phase1-status.md, then the relevant ARCHITECTURE sections." Follow it with the **Ahead** line — the one-line progression through the first few Phase 1 chunks — so the user sees the road, not just the next step.
+6. Remind the user: implementation sessions are bound by ARCH + ROADMAP as scripture. Deviations update scripture first.
 
 ## Commit strategy for the bootstrap itself
 
@@ -1649,6 +1728,7 @@ Sentinel + success-marker strings are part of the test-harness ABI — they don'
 - Latest milestone gets full paragraph at the bottom of the top block. When superseded, demote to one-liner.
 - Predecessor entries trim as new milestones land.
 - If `MEMORY.md` exceeds ~24 KB at chunk close, trim the most-recent verbose predecessor to one line before committing memory updates.
+- **Trimming has a floor; past it, ARCHIVE.** Once every entry is already a one-liner but the accumulated COMPLETED-arc entries still blow the budget, split the index: keep `MEMORY.md` HOT (pickups + binding feedback + open bugs + the active arc's references + the latest audit + the recent-arc overview) and move the cold entries (resolved bugs, landed arcs, closed audit lists) to `MEMORY-ARCHIVE.md` (read on-demand), leaving a one-line pointer per trimmed section. Lossless: recall keys off each FILE's `description` frontmatter + `[[wikilinks]]`, not off `MEMORY.md` — so archiving an index line surfaces nothing differently. Copy verbatim; never delete a detail file. (Full rationale: the "Memory file size pressure" section in the CLAUDE.md template above.)
 
 `project_active.md` accumulates session-window blocks (these can be verbose; they're read selectively, not loaded as default context). Ensure both `project_active.md` and `project_next_session.md` carry the full handoff narrative; `MEMORY.md` just points to them.
 
@@ -1662,9 +1742,14 @@ End-of-iteration summaries follow the structured format codified in the CLAUDE.m
 4. **Memory + scripture** — enumeration of every memory file + doc that was touched.
 5. **Roadmap visualization** — three-row ASCII viz (see next subsection).
 6. **Cache window** — soft / STRONG `/compact` recommendation with rationale.
-7. **Candidate next chunks** — brief; with deps if non-obvious.
+7. **Running** — every live shell / monitor / background task and why, or the words "nothing running".
+8. **Handoff** — "current at `<tip>` — compactable", or the one blocker preventing that.
+9. **Next** / **Ahead** — the single immediate next action, then a one-line ordered progression of the arc's queued chunks ending at its close.
+10. **Candidate next chunks** — brief; with deps if non-obvious.
 
 The boot-log evidence quote is **load-bearing**: it proves the system actually demonstrated the new behavior, not just compiled clean. The cache-window line gives the user the data to decide whether to continue or compact without having to ask the model.
+
+Blocks 7-9 are the checkpoint contract made concrete, and they are emitted **even when the answer is boring**: `Running` answers "is it still working?" (an attached session otherwise reads as in-progress and stalls the human), `Handoff` answers "can I compact right now?" without a preparatory round-trip, and `Next`/`Ahead` answer "where are we in the arc?" without opening the tracker. A missing field reads as an unknown — which is the exact cost these blocks exist to remove.
 
 This structure lets the user (or a future session reading the conversation log) reconstruct state in under 30 seconds.
 
